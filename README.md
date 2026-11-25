@@ -62,3 +62,4 @@ code/main.py 실행. 필요한 라이브러리는 requirements.txt.
 
 ## 배포(선택)
 스트림릿 주소:# (🐷) — (기상조건은 정말 항공기 지연에 영향을 미칠까)
+https://stproject-209192092320924.streamlit.app/
