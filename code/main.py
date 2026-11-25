@@ -20,7 +20,7 @@ st.caption("강수량과 최대 풍속은 항공기 지연율과 어떤 관계�
 # --------------------------------
 # 데이터 불러오기
 # --------------------------------
-DATA_PATH = Path(__file__).parent / "data" / "airline_weather.csv"
+DATA_PATH = Path(__file__).parent / "data" / "2024.2025.2026 data.csv"
 
 @st.cache_data
 def load_data():
