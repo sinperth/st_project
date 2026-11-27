@@ -1,623 +1,104 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from pathlib import Path
+import io
 
-# =====================================
-# 1. 페이지 설정
-# =====================================
-st.set_page_config(
-    page_title="기상조건이 항공기 지연에 미치는 영향",
-    page_icon="✈️",
-    layout="wide"
-)
+# 페이지 기본 설정
+st.set_page_config(page_title="항공편 지연 데이터 대시보드", page_icon="✈️", layout="wide")
 
-st.title("✈️ 기상조건이 항공기 지연에 미치는 영향")
-st.subheader("강수량과 최대 풍속은 항공기 지연율에 어떤 영향을 미칠까?")
+# 원본 데이터 (탭 분리 문자열)
+DATA_STRING = """일자	일 강수량 (mm)	최대 풍속 (m/s)	날씨 특징	총 운항편	지연편	지연율 (%)	주된 지연 사유
+2024-01-18	0	14	겨울철 강풍	420	185	44	기상(바람)
+2024-02-15	15	16.5	봄철 강풍 및 비	410	210	51.2	기상(바람/비)
+2024-03-22	0	12	맑으나 강풍	430	145	33.7	기상(바람), 연결
+2024-05-05	85.5	8.5	어린이날 연휴 폭우	480	280	58.3	기상(비), 공항 혼잡
+2024-06-20	0	3.5	맑음	450	45	10	항공기 연결
+2024-07-10	115	10.5	장마철 집중호우	420	240	57.1	기상(비), 연결
+2024-07-11	10.5	4	비 갠 후 맑음	440	165	37.5	항공기 연결 (전날 여파)
+2024-08-10	60	18.5	태풍 영향권	400	290	72.5	기상(태풍), 전면 통제
+2024-08-25	0	4.5	맑음	460	55	12	항공기 연결
+2024-09-12	25	9	가을비	445	110	24.7	항공기 연결
+2024-10-03	0	3	개천절 연휴 맑음	490	130	26.5	공항 혼잡
+2024-11-20	0	2.5	맑음	450	38	8.4	항공기 연결
+2024-12-15	8.5	15	폭설 및 한파	415	260	62.7	기상(눈), 제빙
+2024-12-16	0	5	맑음 (제설 여파)	455	175	38.5	항공기 연결 (전날 결항 여파)
+2024-12-25	0	2	크리스마스 맑음	480	80	16.7	공항 혼잡
+2025-01-20	5.5	18.5	북극 한파/강풍	405	310	76.5	기상(눈/바람)
+2025-02-10	0	11	맑으나 강풍	430	125	29.1	기상(바람), 연결
+2025-03-15	0	3.5	맑음	455	40	8.8	항공기 연결
+2025-04-05	0	4	식목일 맑음	460	50	10.9	항공기 연결
+2025-05-15	45	7.5	봄비	440	155	35.2	기상(비)
+2025-06-25	80	9	장마 시작	435	195	44.8	기상(비), 연결
+2025-07-15	130.5	12.5	집중 호우	410	255	62.2	기상(비), 연결
+2025-08-08	155	17	역대급 폭우/강풍	390	320	82.1	기상(비/바람), 전면 통제
+2025-08-09	0	3.5	폭우 다음 날 맑음	450	180	40	항공기 연결 (전날 전면 결항 여파)
+2025-09-05	0	4.5	맑음	465	45	9.7	항공기 연결
+2025-10-09	0	2.5	한글날 연휴 맑음	510	115	22.5	공항 혼잡
+2025-11-11	12.5	6	가을비	445	85	19.1	항공기 연결
+2025-12-05	0	14.5	겨울철 강풍	420	190	45.2	기상(바람)
+2025-12-24	15	11	크리스마스 이브 눈	450	160	35.6	기상(눈), 연결
+2025-12-30	0	3	연말 맑음	490	95	19.4	공항 혼잡
+2026-01-15	0	12.5	맑으나 강풍	450	158	35.1	기상(바람), 연결
+2026-01-24	15.5	14	폭설 및 한파	440	185	42	기상(눈), 제빙 작업
+2026-03-10	0	3.2	맑음	460	37	8	항공기 연결
+2026-04-05	0	4.1	맑음	465	46	9.9	항공기 연결
+2026-06-25	45	5	장마 시작	450	126	28	기상(비), 연결
+2026-06-26	5	4	비 그침	455	100	22	항공기 연결 (전날 여파)
+2026-07-15	120	9.5	집중 호우	430	236	54.9	기상(비)
+2026-07-16	0	3.5	맑음	460	115	25	항공기 연결 (전날 여파)
+2026-08-15	80	15.5	태풍 영향권	410	246	60	기상, 결항에 따른 혼잡
+2026-09-10	0	2.5	맑음	450	49	10.9	항공기 연결
+2026-09-28	0	3	맑음 (추석 연휴)	520	98	18.8	공항 혼잡 (여객 폭증)
+2026-10-12	10.5	5.5	가을비	460	75	16.3	항공기 연결
+2026-10-25	0	2	맑음	450	40	8.9	항공기 연결
+2026-11-05	0	3.5	맑음	445	42	9.4	항공기 연결
+2026-11-16	0	2	맑음 (시스템 장애)	460	138	30	시스템/기타"""
 
-st.divider()
-
-# =====================================
-# 2. 데이터 파일 경로
-# =====================================
-# main.py는 code 폴더 안에 있음
-BASE_DIR = Path(__file__).resolve().parent
-
-# code 폴더의 상위 폴더로 이동한 뒤 data 폴더 접근
-DATA_PATH = (
-    BASE_DIR.parent
-    / "data"
-    / "2024.2025.2026 data.csv"
-)
-
-# =====================================
-# 3. 데이터 불러오기
-# =====================================
 @st.cache_data
 def load_data():
-    df = pd.read_csv(
-        DATA_PATH,
-        encoding="utf-8-sig"
-    )
-
-    # 열 이름 앞뒤 공백 제거
-    df.columns = df.columns.str.strip()
-
-    required_columns = [
-        "날짜",
-        "일 강수량 (mm)",
-        "최대 풍속 (m/s)",
-        "날씨 특징",
-        "총 운항편",
-        "지연편",
-        "지연율 (%)",
-        "주된 지연 사유"
-    ]
-
-    missing_columns = [
-        col for col in required_columns
-        if col not in df.columns
-    ]
-
-    if missing_columns:
-        raise ValueError(
-            "CSV 파일에서 다음 열을 찾을 수 없습니다: "
-            + ", ".join(missing_columns)
-        )
-
-    # 날짜 변환
-    df["날짜"] = pd.to_datetime(
-        df["날짜"],
-        errors="coerce"
-    )
-
-    # 숫자형 데이터 변환
-    numeric_columns = [
-        "일 강수량 (mm)",
-        "최대 풍속 (m/s)",
-        "총 운항편",
-        "지연편",
-        "지연율 (%)"
-    ]
-
-    for col in numeric_columns:
-        df[col] = pd.to_numeric(
-            df[col],
-            errors="coerce"
-        )
-
-    # 지연율이 없는 경우 직접 계산
-    calculated_rate = (
-        df["지연편"] / df["총 운항편"] * 100
-    )
-
-    df["지연율 (%)"] = df["지연율 (%)"].fillna(
-        calculated_rate
-    )
-
-    # 분석에 필요한 값이 없는 행 제거
-    df = df.dropna(
-        subset=[
-            "날짜",
-            "일 강수량 (mm)",
-            "최대 풍속 (m/s)",
-            "총 운항편",
-            "지연편",
-            "지연율 (%)"
-        ]
-    )
-
-    # 날짜순 정렬
-    df = df.sort_values("날짜")
-
+    # 텍스트 데이터를 pandas DataFrame으로 변환
+    df = pd.read_csv(io.StringIO(DATA_STRING), sep='\t')
+    df['일자'] = pd.to_datetime(df['일자'])
+    # 분석을 위한 연도, 월 컬럼 추가
+    df['연도'] = df['일자'].dt.year
+    df['월'] = df['일자'].dt.month
     return df
 
+df = load_data()
 
-try:
-    df = load_data()
+st.title("✈️ 항공편 기상 및 지연 현황 분석 (2024~2026)")
+st.markdown("특정 일자의 기상 조건(강수량, 풍속)과 항공편 지연 간의 상관관계를 보여주는 대시보드입니다.")
 
-except FileNotFoundError:
-    st.error("CSV 파일을 찾을 수 없습니다.")
-    st.write("현재 main.py 위치:", str(BASE_DIR))
-    st.write("찾으려는 CSV 경로:", str(DATA_PATH))
-    st.write("저장소에서 확인된 파일 목록:")
-
-    for file in BASE_DIR.parent.rglob("*"):
-        st.write(str(file.relative_to(BASE_DIR.parent)))
-
-    st.stop()
-
-except Exception as e:
-    st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
-    st.stop()
-
-if df.empty:
-    st.error("분석할 데이터가 없습니다.")
-    st.stop()
-
-# =====================================
-# 4. 데이터 기본 정보
-# =====================================
-st.header("1. 데이터 기본 정보")
-
+# 상단 요약 지표 (Metrics)
 col1, col2, col3, col4 = st.columns(4)
-
-col1.metric(
-    "전체 관측일",
-    f"{len(df)}일"
-)
-
-col2.metric(
-    "평균 강수량",
-    f"{df['일 강수량 (mm)'].mean():.1f} mm"
-)
-
-col3.metric(
-    "평균 최대 풍속",
-    f"{df['최대 풍속 (m/s)'].mean():.1f} m/s"
-)
-
-col4.metric(
-    "평균 지연율",
-    f"{df['지연율 (%)'].mean():.1f}%"
-)
-
-st.write(
-    f"**분석 기간:** "
-    f"{df['날짜'].min():%Y-%m-%d} ~ "
-    f"{df['날짜'].max():%Y-%m-%d}"
-)
-
-with st.expander("원본 데이터 확인하기"):
-    st.dataframe(df, use_container_width=True)
+col1.metric("총 분석 일수", f"{len(df)}일")
+col2.metric("평균 지연율", f"{df['지연율 (%)'].mean():.1f}%")
+col3.metric("최고 지연율 기록", f"{df['지연율 (%)'].max()}%", "25년 8월 8일")
+col4.metric("평균 운항편", f"{int(df['총 운항편'].mean())}편")
 
 st.divider()
 
-# =====================================
-# 5. 상관계수 계산 함수
-# =====================================
-def get_correlation(x, y):
-    corr = df[x].corr(df[y])
+# 시각화 1: 시계열 지연율 차트
+st.subheader("📈 일자별 지연율 추이")
+chart_data = df.set_index('일자')[['지연율 (%)']]
+st.line_chart(chart_data)
 
-    if pd.isna(corr):
-        return corr, "계산할 수 없음"
+col_a, col_b = st.columns(2)
 
-    if corr >= 0.7:
-        level = "강한 양의 상관관계"
-    elif corr >= 0.3:
-        level = "약한 양의 상관관계"
-    elif corr > -0.3:
-        level = "뚜렷한 선형 관계가 약함"
-    elif corr > -0.7:
-        level = "약한 음의 상관관계"
-    else:
-        level = "강한 음의 상관관계"
+with col_a:
+    # 시각화 2: 기상 조건과 지연율의 관계 (산점도)
+    st.subheader("🌪️ 최대 풍속 vs 지연율")
+    st.scatter_chart(df, x='최대 풍속 (m/s)', y='지연율 (%)', color='일 강수량 (mm)', size='총 운항편')
 
-    return corr, level
-
-
-# =====================================
-# 6. 강수량과 지연율
-# =====================================
-st.header("2. 강수량과 항공기 지연율의 관계")
-
-corr_rain, level_rain = get_correlation(
-    "일 강수량 (mm)",
-    "지연율 (%)"
-)
-
-col1, col2 = st.columns(2)
-
-col1.metric(
-    "상관계수",
-    f"{corr_rain:.3f}" if pd.notna(corr_rain) else "계산 불가"
-)
-
-col2.metric(
-    "상관관계 해석",
-    level_rain
-)
-
-fig1 = px.scatter(
-    df,
-    x="일 강수량 (mm)",
-    y="지연율 (%)",
-    trendline="ols",
-    hover_data=[
-        "날짜",
-        "최대 풍속 (m/s)",
-        "날씨 특징",
-        "주된 지연 사유"
-    ],
-    title="일 강수량과 항공기 지연율"
-)
-
-fig1.update_layout(
-    height=500,
-    xaxis_title="일 강수량 (mm)",
-    yaxis_title="지연율 (%)"
-)
-
-st.plotly_chart(
-    fig1,
-    use_container_width=True
-)
-
-st.markdown(
-    "**이 그래프로 알 수 있는 것**  \n"
-    "강수량이 많아질수록 항공기 지연율이 높아지는 경향이 있는지 확인한다."
-)
+with col_b:
+    # 시각화 3: 지연 사유별 데이터
+    st.subheader("⚠️ 주된 지연 사유 분포")
+    reason_counts = df['주된 지연 사유'].value_counts()
+    st.bar_chart(reason_counts)
 
 st.divider()
 
-# =====================================
-# 7. 풍속과 지연율
-# =====================================
-st.header("3. 최대 풍속과 항공기 지연율의 관계")
-
-corr_wind, level_wind = get_correlation(
-    "최대 풍속 (m/s)",
-    "지연율 (%)"
-)
-
-col1, col2 = st.columns(2)
-
-col1.metric(
-    "상관계수",
-    f"{corr_wind:.3f}" if pd.notna(corr_wind) else "계산 불가"
-)
-
-col2.metric(
-    "상관관계 해석",
-    level_wind
-)
-
-fig2 = px.scatter(
-    df,
-    x="최대 풍속 (m/s)",
-    y="지연율 (%)",
-    trendline="ols",
-    hover_data=[
-        "날짜",
-        "일 강수량 (mm)",
-        "날씨 특징",
-        "주된 지연 사유"
-    ],
-    title="최대 풍속과 항공기 지연율"
-)
-
-fig2.update_layout(
-    height=500,
-    xaxis_title="최대 풍속 (m/s)",
-    yaxis_title="지연율 (%)"
-)
-
-st.plotly_chart(
-    fig2,
-    use_container_width=True
-)
-
-st.markdown(
-    "**이 그래프로 알 수 있는 것**  \n"
-    "바람이 강해질수록 항공기 지연율이 높아지는 경향이 있는지 확인한다."
-)
-
-st.divider()
-
-# =====================================
-# 8. 날짜별 강수량과 지연율
-# =====================================
-st.header("4. 날짜별 강수량과 지연율 변화")
-
-fig3 = go.Figure()
-
-fig3.add_trace(
-    go.Scatter(
-        x=df["날짜"],
-        y=df["일 강수량 (mm)"],
-        mode="lines+markers",
-        name="일 강수량",
-        yaxis="y"
-    )
-)
-
-fig3.add_trace(
-    go.Scatter(
-        x=df["날짜"],
-        y=df["지연율 (%)"],
-        mode="lines+markers",
-        name="지연율",
-        yaxis="y2"
-    )
-)
-
-fig3.update_layout(
-    title="날짜별 강수량과 지연율 변화",
-    xaxis_title="날짜",
-    yaxis=dict(
-        title="일 강수량 (mm)"
-    ),
-    yaxis2=dict(
-        title="지연율 (%)",
-        overlaying="y",
-        side="right"
-    ),
-    height=500,
-    hovermode="x unified"
-)
-
-st.plotly_chart(
-    fig3,
-    use_container_width=True
-)
-
-st.markdown(
-    "**이 그래프로 알 수 있는 것**  \n"
-    "비가 많이 내린 날짜에 항공기 지연율도 함께 높아졌는지 확인한다."
-)
-
-st.divider()
-
-# =====================================
-# 9. 날짜별 풍속과 지연율
-# =====================================
-st.header("5. 날짜별 최대 풍속과 지연율 변화")
-
-fig4 = go.Figure()
-
-fig4.add_trace(
-    go.Scatter(
-        x=df["날짜"],
-        y=df["최대 풍속 (m/s)"],
-        mode="lines+markers",
-        name="최대 풍속",
-        yaxis="y"
-    )
-)
-
-fig4.add_trace(
-    go.Scatter(
-        x=df["날짜"],
-        y=df["지연율 (%)"],
-        mode="lines+markers",
-        name="지연율",
-        yaxis="y2"
-    )
-)
-
-fig4.update_layout(
-    title="날짜별 최대 풍속과 지연율 변화",
-    xaxis_title="날짜",
-    yaxis=dict(
-        title="최대 풍속 (m/s)"
-    ),
-    yaxis2=dict(
-        title="지연율 (%)",
-        overlaying="y",
-        side="right"
-    ),
-    height=500,
-    hovermode="x unified"
-)
-
-st.plotly_chart(
-    fig4,
-    use_container_width=True
-)
-
-st.markdown(
-    "**이 그래프로 알 수 있는 것**  \n"
-    "바람이 강했던 날짜와 지연율이 높았던 날짜가 겹치는지 확인한다."
-)
-
-st.divider()
-
-# =====================================
-# 10. 지연율 TOP 10
-# =====================================
-st.header("6. 항공기 지연율 TOP 10")
-
-top10 = df.sort_values(
-    "지연율 (%)",
-    ascending=False
-).head(10)
-
-fig5 = px.bar(
-    top10,
-    x="지연율 (%)",
-    y="날짜",
-    orientation="h",
-    hover_data=[
-        "일 강수량 (mm)",
-        "최대 풍속 (m/s)",
-        "총 운항편",
-        "지연편",
-        "주된 지연 사유"
-    ],
-    title="지연율이 가장 높았던 날짜 TOP 10"
-)
-
-fig5.update_layout(
-    yaxis=dict(autorange="reversed"),
-    xaxis_title="지연율 (%)",
-    height=500
-)
-
-st.plotly_chart(
-    fig5,
-    use_container_width=True
-)
-
-st.markdown(
-    "**이 그래프로 알 수 있는 것**  \n"
-    "지연율이 높았던 날의 기상조건과 주요 지연 사유를 비교한다."
-)
-
-st.divider()
-
-# =====================================
-# 11. 강수량 구간별 평균 지연율
-# =====================================
-st.header("7. 강수량 구간별 평균 지연율")
-
-rain_group = pd.cut(
-    df["일 강수량 (mm)"],
-    bins=[
-        -0.001,
-        0,
-        10,
-        30,
-        80,
-        float("inf")
-    ],
-    labels=[
-        "비 없음",
-        "0 초과~10mm",
-        "10~30mm",
-        "30~80mm",
-        "80mm 초과"
-    ]
-)
-
-rain_summary = (
-    df.assign(강수량_구간=rain_group)
-    .groupby(
-        "강수량_구간",
-        observed=False
-    )
-    .agg(
-        평균_지연율=("지연율 (%)", "mean"),
-        관측일수=("날짜", "count")
-    )
-    .reset_index()
-    .dropna()
-)
-
-fig6 = px.bar(
-    rain_summary,
-    x="강수량_구간",
-    y="평균_지연율",
-    text_auto=".1f",
-    title="강수량 구간별 평균 지연율",
-    labels={
-        "강수량_구간": "강수량 구간",
-        "평균_지연율": "평균 지연율 (%)"
-    }
-)
-
-fig6.update_layout(height=450)
-
-st.plotly_chart(
-    fig6,
-    use_container_width=True
-)
-
-st.dataframe(
-    rain_summary,
-    use_container_width=True
-)
-
-st.markdown(
-    "**이 그래프로 알 수 있는 것**  \n"
-    "강수량이 많은 구간에서 평균 지연율이 높아지는지 비교한다."
-)
-
-st.divider()
-
-# =====================================
-# 12. 풍속 구간별 평균 지연율
-# =====================================
-st.header("8. 풍속 구간별 평균 지연율")
-
-wind_group = pd.cut(
-    df["최대 풍속 (m/s)"],
-    bins=[
-        -0.001,
-        5,
-        10,
-        15,
-        20,
-        float("inf")
-    ],
-    labels=[
-        "5m/s 이하",
-        "5~10m/s",
-        "10~15m/s",
-        "15~20m/s",
-        "20m/s 초과"
-    ]
-)
-
-wind_summary = (
-    df.assign(풍속_구간=wind_group)
-    .groupby(
-        "풍속_구간",
-        observed=False
-    )
-    .agg(
-        평균_지연율=("지연율 (%)", "mean"),
-        관측일수=("날짜", "count")
-    )
-    .reset_index()
-    .dropna()
-)
-
-fig7 = px.bar(
-    wind_summary,
-    x="풍속_구간",
-    y="평균_지연율",
-    text_auto=".1f",
-    title="최대 풍속 구간별 평균 지연율",
-    labels={
-        "풍속_구간": "최대 풍속 구간",
-        "평균_지연율": "평균 지연율 (%)"
-    }
-)
-
-fig7.update_layout(height=450)
-
-st.plotly_chart(
-    fig7,
-    use_container_width=True
-)
-
-st.dataframe(
-    wind_summary,
-    use_container_width=True
-)
-
-st.markdown(
-    "**이 그래프로 알 수 있는 것**  \n"
-    "풍속이 강한 구간에서 평균 지연율이 높아지는지 비교한다."
-)
-
-st.divider()
-
-# =====================================
-# 13. 분석 시 주의사항
-# =====================================
-st.header("9. 분석 결과 해석 시 주의사항")
-
-st.info(
-    """
-    1. 상관관계가 있다고 해서 기상조건이 지연의 직접적인 원인이라고 단정할 수 없다.
-
-    2. 항공기 지연에는 강수량과 풍속 외에도 눈, 안개, 항공 교통량,
-       기체 문제, 공항 시설 문제 등이 영향을 줄 수 있다.
-
-    3. 이 데이터는 특정 날짜를 대상으로 수집한 자료이므로
-       전체 날짜의 항공 운항 상황을 대표한다고 보기 어렵다.
-
-    4. 산점도의 추세선과 상관계수는 관계를 살펴보는 참고 자료로 해석해야 한다.
-
-    5. 관측일 수가 적은 강수량·풍속 구간은 평균 지연율이
-       일부 날짜의 영향을 크게 받을 수 있다.
-    """
-)
-
-st.divider()
-
-st.caption(
-    "기상조건과 항공기 지연의 관계 탐구 프로젝트"
-)
+# 로우 데이터 테이블 확인 및 필터링
+st.subheader("📋 전체 데이터 확인")
+years = st.multiselect("연도 선택", options=df['연도'].unique(), default=df['연도'].unique())
+filtered_df = df[df['연도'].isin(years)]
+st.dataframe(filtered_df.drop(columns=['연도', '월']), use_container_width=True)
